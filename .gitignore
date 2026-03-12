@@ -11,4 +11,3 @@ build/
 *.log
 .DS_Store
 .git/
-*.md
