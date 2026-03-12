@@ -8,7 +8,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY watcher.py .
-COPY .env .
 
 # Create data directories
 RUN mkdir -p daily_csv
