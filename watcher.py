@@ -347,6 +347,39 @@ def append_to_daily_csv(
         ])
 
 
+def extract_image_from_entry(entry) -> str | None:
+    """
+    Extract image URL from Reddit RSS entry.
+    Checks multiple sources for the image.
+    """
+    # Check media:content
+    media_content = entry.get("media_content")
+    if media_content and isinstance(media_content, list):
+        for mc in media_content:
+            if mc.get("type", "").startswith("image/"):
+                return mc.get("url")
+
+    # Check media:thumbnail
+    media_thumbnail = entry.get("media_thumbnail")
+    if media_thumbnail:
+        return media_thumbnail
+
+    # Check enclosure
+    enclosure = entry.get("enclosure")
+    if enclosure:
+        enclosure_type = enclosure.get("type", "")
+        if enclosure_type.startswith("image/"):
+            return enclosure.get("url")
+
+    # Check for links in summary that are image URLs
+    summary = entry.get("summary", "")
+    img_match = re.search(r'https?://[^\s<>"]+\.(?:jpg|jpeg|png|gif|webp)', summary, re.IGNORECASE)
+    if img_match:
+        return img_match.group(0)
+
+    return None
+
+
 def send_discord_alert(
     title: str,
     url: str,
@@ -356,6 +389,7 @@ def send_discord_alert(
     claude_result: dict | None = None,
     match_reason: str | None = None,
     webhook_url: str | None = None,
+    image_url: str | None = None,
 ) -> None:
     # Use provided webhook_url, or fall back to TEST webhook, then ALERT webhook
     if webhook_url is None:
@@ -418,9 +452,18 @@ def send_discord_alert(
     if len(content) > 1800:
         content = content[:1797] + "..."
 
+    # Build embed with image if available
+    payload = {"content": content}
+    if image_url:
+        payload["embeds"] = [
+            {
+                "image": {"url": image_url}
+            }
+        ]
+
     response = requests.post(
         webhook_url,
-        json={"content": content},
+        json=payload,
         timeout=15,
         headers={"User-Agent": USER_AGENT},
     )
@@ -567,6 +610,11 @@ def main():
                 summary = entry.get("summary", "").strip()
                 published = entry.get("published", "").strip()
 
+                # Extract image from entry
+                image_url = extract_image_from_entry(entry)
+                if image_url:
+                    print(f"[IMAGE] Found image: {image_url[:80]}...")
+
                 age_min = parse_post_age_minutes(entry)
                 if age_min is not None and age_min > MAX_POST_AGE_MINUTES:
                     seen_ids.add(post_id)
@@ -620,6 +668,7 @@ def main():
                         claude_result=claude_result,
                         match_reason=match_reason,
                         webhook_url=ALERT_DISCORD_WEBHOOK_URL,
+                        image_url=image_url,
                     )
                     print(f"[ALERT DISCORD SENT] score={score}, under_market={is_under_market}")
                 elif is_keyword_match and TEST_DISCORD_WEBHOOK_URL:
@@ -633,6 +682,7 @@ def main():
                         claude_result=claude_result,
                         match_reason=match_reason,
                         webhook_url=TEST_DISCORD_WEBHOOK_URL,
+                        image_url=image_url,
                     )
                     print(f"[TEST DISCORD SENT] score={score}, under_market={is_under_market}")
                 elif ALL_DISCORD_WEBHOOK_URL:
@@ -646,6 +696,7 @@ def main():
                         claude_result=claude_result,
                         match_reason=match_reason,
                         webhook_url=ALL_DISCORD_WEBHOOK_URL,
+                        image_url=image_url,
                     )
                     print(f"[ALL DISCORD SENT] score={score}, under_market={is_under_market}")
 
