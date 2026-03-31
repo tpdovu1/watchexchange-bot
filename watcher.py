@@ -359,10 +359,10 @@ def extract_image_from_entry(entry) -> str | None:
             if mc.get("type", "").startswith("image/"):
                 return mc.get("url")
 
-    # Check media:thumbnail
+    # Check media:thumbnail (returns list of dicts)
     media_thumbnail = entry.get("media_thumbnail")
-    if media_thumbnail:
-        return media_thumbnail
+    if media_thumbnail and isinstance(media_thumbnail, list) and len(media_thumbnail) > 0:
+        return media_thumbnail[0].get("url")
 
     # Check enclosure
     enclosure = entry.get("enclosure")
