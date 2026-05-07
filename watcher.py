@@ -19,6 +19,7 @@ ALERT_DISCORD_WEBHOOK_URL = os.getenv("ALERT_DISCORD_WEBHOOK_URL", "").strip()
 CSV_DISCORD_WEBHOOK_URL = os.getenv("CSV_DISCORD_WEBHOOK_URL", "").strip()
 TEST_DISCORD_WEBHOOK_URL = os.getenv("TEST_DISCORD_WEBHOOK_URL", "").strip()
 ALL_DISCORD_WEBHOOK_URL = os.getenv("ALL_DISCORD_WEBHOOK_URL", "").strip()
+KENNY_DISCORD_WEBHOOK_URL = os.getenv("KENNY_DISCORD_WEBHOOK_URL", "").strip()
 SUBREDDIT = os.getenv("SUBREDDIT", "Watchexchange").strip()
 KEYWORDS = [k.strip().lower() for k in os.getenv("KEYWORDS", "").split(",") if k.strip()]
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "120"))
@@ -30,6 +31,22 @@ CSV_DIRNAME = os.getenv("CSV_DIRNAME", "daily_csv").strip()
 MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "").strip()
 MINIMAX_BASE_URL = "https://api.minimax.io/anthropic"
 MINIMAX_MODEL = "MiniMax-M2.5"
+
+# Seiko Alpinist model numbers and keywords for Kenny's dedicated channel
+KENNY_KEYWORDS = {
+    "models": [
+        "J14041", "J13043",
+        "SCVF005", "SCVF007", "SCVF009",
+        "SBCJ019", "SBCJ021", "SBCJ031",
+        "SARB013", "SARB015", "SARB017",
+        "SPB117", "SPB119", "SPB121", "SPB123",
+        "SPB155", "SPB157", "SPB159",
+        "SPB197", "SPB199", "SPB201", "SPB209",
+        "SPB377", "SPB379", "SPB409", "SPB489",
+        "SBDC087", "SBDC089", "SBDC091", "SBDC093",
+    ],
+    "text": ["seiko alpinist", "alpinist"],
+}
 
 STATE_FILE = Path("seen_posts.json")
 CSV_STATE_FILE = Path("csv_upload_state.json")
@@ -141,6 +158,26 @@ def matches_keywords(title: str, summary: str) -> bool:
         # This prevents "ap" from matching "formex" or "keep"
         pattern = r'\b' + re.escape(keyword) + r'\b'
         if re.search(pattern, haystack):
+            return True
+
+    return False
+
+
+def matches_kenny_keywords(title: str, summary: str) -> bool:
+    """
+    Check for Seiko Alpinist matches: any model number OR text keywords.
+    """
+    haystack = normalize_text(f"{title} {summary}")
+
+    # Check for model numbers
+    for model in KENNY_KEYWORDS["models"]:
+        pattern = r'(?:^|[^0-9A-Za-z])' + re.escape(model) + r'(?:$|[^0-9A-Za-z])'
+        if re.search(pattern, haystack, re.IGNORECASE):
+            return True
+
+    # Check for text keywords
+    for keyword in KENNY_KEYWORDS["text"]:
+        if keyword in haystack:
             return True
 
     return False
@@ -652,12 +689,27 @@ def main():
                 is_under_market = bool(claude_result.get("is_likely_under_market", False))
                 match_reason = get_match_reason(title, summary)
                 is_keyword_match = matches_keywords(title, summary)
+                is_kenny_match = matches_kenny_keywords(title, summary)
 
                 print(f"[MATCH] {title}")
                 print(f"[MATCH_REASON] {match_reason}")
 
                 # Send to only ONE channel (priority order)
-                if is_keyword_match and is_under_market and score >= 8 and ALERT_DISCORD_WEBHOOK_URL:
+                if is_kenny_match and KENNY_DISCORD_WEBHOOK_URL:
+                    # Priority 0: Seiko Alpinist (any model) → KENNY
+                    send_discord_alert(
+                        title=title,
+                        url=link,
+                        summary=summary,
+                        published=published,
+                        price=price,
+                        claude_result=claude_result,
+                        match_reason=f"Alpinist model match: {match_reason}",
+                        webhook_url=KENNY_DISCORD_WEBHOOK_URL,
+                        image_url=image_url,
+                    )
+                    print(f"[KENNY DISCORD SENT] {is_under_market=}, score={score}")
+                elif is_keyword_match and is_under_market and score >= 8 and ALERT_DISCORD_WEBHOOK_URL:
                     # Priority 1: Best keyword deals (under market + score >= 8) → ALERT
                     send_discord_alert(
                         title=title,
